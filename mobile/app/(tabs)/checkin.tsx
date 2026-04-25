@@ -10,7 +10,7 @@ const STEPS = [
   { key: 'sleepQuality', title: 'How did you sleep?', desc: 'Sleep affects everything.', lo: '😴 Poor', hi: '⭐ Great' },
 ] as const;
 
-type Key = 'moodScore' | 'cravingLevel' | 'stressLevel' | 'sleepQuality';
+type Key = typeof STEPS[number]['key'];
 
 export default function CheckInScreen() {
   const [step, setStep] = useState(0);
