@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Sprout",
+    "slug": "sprout",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "sprout",
+    "userInterfaceStyle": "light",
+    "splash": { "resizeMode": "contain", "backgroundColor": "#48BB78" },
+    "ios": { "supportsTablet": false, "bundleIdentifier": "com.yourteam.sprout" },
+    "android": {
+      "adaptiveIcon": { "backgroundColor": "#48BB78" },
+      "package": "com.yourteam.sprout"
+    },
+    "plugins": ["expo-router"],
+    "experiments": { "typedRoutes": true }
+  }
+}
