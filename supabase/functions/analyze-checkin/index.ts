@@ -1,8 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.24.0";
 
-const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
 const SYSTEM = `You are Sprout's inner voice — warm, non-judgmental, supporting recovery.
 Analyze the check-in and return ONLY valid JSON, no markdown, no preamble.
@@ -17,12 +20,14 @@ Return exactly:
 const clamp = (v: number) => Math.min(100, Math.max(0, v));
 
 serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+
   const auth = req.headers.get("Authorization");
-  if (!auth) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  if (!auth) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: CORS });
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
   const { data: { user }, error } = await sb.auth.getUser();
-  if (error || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  if (error || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: CORS });
 
   const body = await req.json();
   const { mood_score, craving_level, stress_level, sleep_quality, journal_text, check_in_id } = body;
@@ -32,12 +37,17 @@ serve(async (req) => {
 
   const msg = JSON.stringify({ mood_score, craving_level, stress_level, sleep_quality, journal_text: journal_text ?? null, streak_days: comp?.streak ?? 0, past_successful_tasks: past?.map((t: any) => t.title) ?? [] });
 
-  const ai = await anthropic.messages.create({ model: "claude-sonnet-4-20250514", max_tokens: 1024, system: SYSTEM, messages: [{ role: "user", content: msg }] });
-  const raw = ai.content[0].type === "text" ? ai.content[0].text : "";
+  const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${Deno.env.get("GROQ_API_KEY")}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1024, messages: [{ role: "system", content: SYSTEM }, { role: "user", content: msg }] }),
+  });
+  const groqData = await groqRes.json();
+  const raw = groqData.choices?.[0]?.message?.content ?? "";
 
   let parsed: any;
   try { parsed = JSON.parse(raw); }
-  catch { return new Response(JSON.stringify({ error: "parse failed", raw }), { status: 500 }); }
+  catch { return new Response(JSON.stringify({ error: "parse failed", raw }), { status: 500, headers: CORS }); }
 
   if (check_in_id) {
     await sb.from("check_ins").update({ ai_risk_level: parsed.risk_level, ai_emotional_summary: parsed.emotional_summary, ai_companion_message: parsed.companion_message, ai_raw_response: parsed }).eq("id", check_in_id).eq("user_id", user.id);
@@ -55,5 +65,5 @@ serve(async (req) => {
   const task = parsed.recommended_micro_task;
   const { data: newTask } = await sb.from("daily_tasks").insert({ user_id: user.id, check_in_id: check_in_id ?? null, title: task.title, description: task.description, estimated_minutes: task.estimated_minutes, difficulty: task.difficulty, reason: task.reason, source: "ai", scheduled_for: new Date().toISOString().split("T")[0] }).select().single();
 
-  return new Response(JSON.stringify({ ...parsed, task_id: newTask?.id }), { headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify({ ...parsed, task_id: newTask?.id }), { headers: { ...CORS, "Content-Type": "application/json" } });
 });
